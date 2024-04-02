@@ -17,14 +17,14 @@ dotnet publish -c Release
 Right click notify icon, check AutoStart
 
 ## Screen shot
-![AmbientLight: 156Lux](images\\screenshots_1.png)
-![AmbientLight: 14Lux](images\\screenshots_2.png)
-![AmbientLight: 0Lux](images\\screenshots_3.png)
+![AmbientLight: 156Lux](images/screenshots_1.png)
+![AmbientLight: 14Lux](images/screenshots_2.png)
+![AmbientLight: 0Lux](images/screenshots_3.png)
 
 ## LightSensor placement
 
-![LightSensor placement](images\\lightSensor_placement.png)
+![LightSensor placement](images/lightSensor_placement.png)
 
 ## Interpolated ALR Curve
 
-![Interpolated ALR Curve](images\\interpolated_ALR_Curve.png)
+![Interpolated ALR Curve](images/interpolated_ALR_Curve.png)
