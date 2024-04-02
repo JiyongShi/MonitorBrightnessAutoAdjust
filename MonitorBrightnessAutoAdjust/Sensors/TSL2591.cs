@@ -100,7 +100,16 @@ namespace MonitorBrightnessAutoAdjust.Sensors
         }
         private async Task EnsureInitializedAsync()
         {
-            if (IsInitialised) { return; }
+            if (IsInitialised)
+            {
+                return;
+            }
+
+            Initialize();
+        }
+
+        public void Initialize()
+        {
             try
             {
                 long open = CH341OpenDevice(0);
@@ -149,34 +158,24 @@ namespace MonitorBrightnessAutoAdjust.Sensors
             write8(TSL2591_REG_CONTROL, (byte)(gain + int_time));
         }
 
-        private uint[] GetData()
-        {
-            uint[] Data = new uint[2];
-
-            Data[0] = I2CRead16(TSL2591_REG_DATA_0);
-            Data[1] = I2CRead16(TSL2591_REG_DATA_1);
-
-            return Data;
-        }
-
         // Calculate Lux
         public double GetLux()
         {
             uint gain = gainSet;
             uint itime = intTimeSet;
-            uint[] Data = GetData();
-            uint CH0 = Data[0];
-            uint CH1 = Data[1];
+
+            uint CH0 = I2CRead16(TSL2591_REG_DATA_0);
+            uint CH1 = I2CRead16(TSL2591_REG_DATA_1);
 
             double d0, d1;
-            double lux = 0.0;
 
             // Determine if either sensor saturated (0xFFFF)
             if (CH0 == 0xFFFF || CH1 == 0xFFFF)
             {
-                lux = 0.0;
+                var lux = 0.0;
                 return lux;
             }
+
             // Convert from unsigned integer to floating point
             d0 = CH0; d1 = CH1;
 

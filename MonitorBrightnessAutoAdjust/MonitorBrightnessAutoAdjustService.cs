@@ -10,16 +10,24 @@ namespace MonitorBrightnessAutoAdjust
 
         private readonly ILogger _logger;
 
-        private readonly List<IMonitor> _monitors;
+        private List<IMonitor> _monitors;
         private readonly TSL2591 _lightSensor;
         private double _latestLux = 0d;
-        private int _latestLuxLevel = 0;
+        private int _latestBrightnessLevel = 0;
 
         public MonitorBrightnessAutoAdjustService(ILogger<MonitorBrightnessAutoAdjustBackgroundService> logger)
         {
             _logger = logger;
 
             //
+            InitializeMonitors();
+
+            //
+            _lightSensor = new TSL2591();
+        }
+
+        private void InitializeMonitors()
+        {
             var monitorsTask = MonitorManager.EnumerateMonitorsAsync(TimeSpan.FromSeconds(10));
             monitorsTask.ConfigureAwait(false);
             monitorsTask.Wait(TimeSpan.FromSeconds(10));
@@ -28,21 +36,46 @@ namespace MonitorBrightnessAutoAdjust
             {
                 _logger.LogInformation($"Monitor: {mb.DisplayIndex} {mb.DeviceInstanceId} {mb.Description} {mb.IsBrightnessSupported} {mb.UpdateBrightness().Status} {mb.Brightness}");
             }
-
-            //
-            _lightSensor = new TSL2591();
         }
+
+        private DateTime _latestReInitializeTime = DateTime.Now;
 
         public double GetLux()
         {
             var lux = _lightSensor.GetLux();
-            if (lux < 0)
+
+            switch (lux)
             {
-                lux = 0;
+                case 0:
+                    {
+                        // may light sensor can't access
+                        var deviceId = _lightSensor.GetId();
+                        if (deviceId == 0)
+                        {
+                            _logger.LogInformation($"Light sensor can't access...");
+
+                            // may compute sleep or usb reconnected, try re-initialize
+                            // retry initialize interval larger than 2 min
+                            if ((DateTime.Now - _latestReInitializeTime).TotalMinutes > 2)
+                            {
+                                _logger.LogInformation($"Light sensor can't access, retry re-initialize...");
+                                _lightSensor.Initialize();
+                                lux = _lightSensor.GetLux();
+                                _latestReInitializeTime = DateTime.Now;
+                            }
+                        }
+
+                        break;
+                    }
+                case < 0:
+                    lux = 0;
+                    break;
             }
 
             return lux;
         }
+
+        private DateTime _latestReInitilizeMonitorTime = DateTime.Now;
 
         public int AutoAdjust()
         {
@@ -51,27 +84,43 @@ namespace MonitorBrightnessAutoAdjust
 
             if (Math.Abs(lux - _latestLux) > 2)
             {
-                var luxLevel = ComputeMonitorBrightnessLevel(lux);
-                if (luxLevel != _latestLuxLevel)
+                var brightnessLevel = ComputeMonitorBrightnessLevel(lux);
+                if (brightnessLevel != _latestBrightnessLevel)
                 {
-                    _logger.LogInformation($"Lux change: {_latestLux}->{lux}, monitor brightness change: {_latestLuxLevel}->{luxLevel}...");
+                    _logger.LogInformation($"Lux change: {_latestLux}->{lux}, monitor brightness change: {_latestBrightnessLevel}->{brightnessLevel}...");
 
-                    SetMonitorBrightnessByEnvironmentLux(luxLevel, _monitors);
-                    _latestLuxLevel = luxLevel;
+                    var setResultMap = SetMonitorBrightness(_monitors,brightnessLevel);
+                    if (setResultMap.Any(t => t.Value != AccessResult.Succeeded))
+                    {
+                        _logger.LogInformation($"Monitor {setResultMap.FirstOrDefault(t=>t.Value != AccessResult.Succeeded).Key.Description} set failure...");
+
+                        // some monitor set failure, retry get monitors then set brightness level
+                        // retry initialize interval larger than 2 min
+                        if ((DateTime.Now - _latestReInitilizeMonitorTime).TotalMinutes > 2)
+                        {
+                            _logger.LogInformation($"Some monitor set failure, retry re-initialize...");
+
+                            InitializeMonitors();
+                            setResultMap = SetMonitorBrightness(_monitors, brightnessLevel);
+                            _logger.LogInformation($"Lux change: {_latestLux}->{lux}, monitor brightness change: {_latestBrightnessLevel}->{brightnessLevel}...");
+                        } 
+                    }
+
+                    _latestBrightnessLevel = brightnessLevel;
                 }
 
                 _latestLux = lux;
 
                 if (OnEnvironmentLightChanged != null)
                 {
-                    OnEnvironmentLightChanged(this, new Tuple<double, int>(_latestLux, _latestLuxLevel));
+                    OnEnvironmentLightChanged(this, new Tuple<double, int>(_latestLux, _latestBrightnessLevel));
                 }
             }
 
-            return _latestLuxLevel;
+            return _latestBrightnessLevel;
         }
 
-        private static List<Tuple<double, double, int>> EnviromentLuxBrightnessPercentPredefineTable =
+        private static List<Tuple<double, double, int>> EnviromentLuxBrightnessLevelPredefineTable =
         [
             new(-1, 10, 0),
             new(10, 20, 24),
@@ -86,17 +135,17 @@ namespace MonitorBrightnessAutoAdjust
 
         private int ComputeMonitorBrightnessLevel(double lux)
         {
-            var rangeIndex = EnviromentLuxBrightnessPercentPredefineTable.FindIndex(t => lux > t.Item1 && lux <= t.Item2);
-            var currentRange = EnviromentLuxBrightnessPercentPredefineTable[rangeIndex];
-            if (rangeIndex == EnviromentLuxBrightnessPercentPredefineTable.Count - 1)
+            var rangeIndex = EnviromentLuxBrightnessLevelPredefineTable.FindIndex(t => lux > t.Item1 && lux <= t.Item2);
+            var currentRange = EnviromentLuxBrightnessLevelPredefineTable[rangeIndex];
+            if (rangeIndex == EnviromentLuxBrightnessLevelPredefineTable.Count - 1)
             {
                 // max brightness, NOT need linear compute
                 return currentRange.Item3;
             }
 
             var rangeMinLevel = currentRange.Item3;
-            var rangeMaxLevel = EnviromentLuxBrightnessPercentPredefineTable[
-                rangeIndex == EnviromentLuxBrightnessPercentPredefineTable.Count - 1
+            var rangeMaxLevel = EnviromentLuxBrightnessLevelPredefineTable[
+                rangeIndex == EnviromentLuxBrightnessLevelPredefineTable.Count - 1
                     ? rangeIndex
                     : rangeIndex + 1].Item3;
             var level = currentRange.Item3 + (int)((rangeMaxLevel - rangeMinLevel) / (currentRange.Item2 - currentRange.Item1) *
@@ -104,19 +153,16 @@ namespace MonitorBrightnessAutoAdjust
             return level;
         }
 
-        private int SetMonitorBrightnessByEnvironmentLux(int level, IEnumerable<IMonitor> monitors)
+        private Dictionary<IMonitor, AccessResult> SetMonitorBrightness(IEnumerable<IMonitor> monitors, int brightnessLevel)
         {
-            SetMonitorBrightness(monitors, level);
-            return level;
-        }
-
-        private void SetMonitorBrightness(IEnumerable<IMonitor> monitors, int brightnessPercent)
-        {
+            var setResultList = new Dictionary<IMonitor, AccessResult>();
             foreach (var monitor in monitors)
             {
-                var result = monitor.SetBrightness(brightnessPercent);
-                _logger.LogInformation($"{monitor.Description} brightness changed to: {brightnessPercent}, {result.Status}");
+                var result = monitor.SetBrightness(brightnessLevel);
+                setResultList.Add(monitor, result);
+                _logger.LogInformation($"{monitor.Description} brightness changed to: {brightnessLevel}, {result.Status}");
             }
+            return setResultList;
         }
     }
 }
