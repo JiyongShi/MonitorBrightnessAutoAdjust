@@ -1,6 +1,9 @@
 ﻿using Microsoft.Extensions.Logging;
 using MonitorBrightnessAutoAdjust.Sensors;
 using Monitorian.Core.Models.Monitor;
+using Monitorian.Core.Models.Watcher;
+using System.Collections.ObjectModel;
+using System.Windows.Forms;
 
 namespace MonitorBrightnessAutoAdjust
 {
@@ -10,33 +13,142 @@ namespace MonitorBrightnessAutoAdjust
 
         private readonly ILogger _logger;
 
-        private List<IMonitor> _monitors;
         private readonly TSL2591 _lightSensor;
         private double _latestLux = 0d;
         private int _latestBrightnessLevel = 0;
+
+        private readonly SessionWatcher _sessionWatcher;
+        private readonly PowerWatcher _powerWatcher;
+        private readonly DisplaySettingsWatcher _displaySettingsWatcher;
 
         public MonitorBrightnessAutoAdjustService(ILogger<MonitorBrightnessAutoAdjustBackgroundService> logger)
         {
             _logger = logger;
 
             //
-            InitializeMonitors();
+            Monitors = new ObservableCollection<IMonitor>();
+
+            _sessionWatcher = new SessionWatcher();
+            _powerWatcher = new PowerWatcher();
+            _displaySettingsWatcher = new DisplaySettingsWatcher();
+
+            _sessionWatcher.Subscribe((e) => OnMonitorsChangeInferred(nameof(SessionWatcher), e));
+            _powerWatcher.Subscribe((e) => OnMonitorsChangeInferred(nameof(PowerWatcher), e));
+            _displaySettingsWatcher.Subscribe((e) => OnMonitorsChangeInferred(nameof(DisplaySettingsWatcher), e));
 
             //
             _lightSensor = new TSL2591();
         }
 
-        private void InitializeMonitors()
+        #region Monitors
+
+        private async void OnMonitorsChangeInferred(object sender, ICountEventArgs e = null, bool force = false)
         {
-            var monitorsTask = MonitorManager.EnumerateMonitorsAsync(TimeSpan.FromSeconds(10));
-            monitorsTask.ConfigureAwait(false);
-            monitorsTask.Wait(TimeSpan.FromSeconds(10));
-            _monitors = monitorsTask.Result.OrderBy(t => t.DeviceInstanceId).ToList();
-            foreach (var mb in _monitors)
+            await ProceedScanAsync(e);
+        }
+
+        public async Task ProceedScanAsync(ICountEventArgs e, bool force = false)
+        {
+            await ScanAsync(TimeSpan.FromSeconds(3));
+
+            // set brightness by lux again, preview set action may failure or new monitor may not set
+            AutoAdjust(force);
+        }
+
+
+        public ObservableCollection<IMonitor> Monitors { get; }
+        private readonly object _monitorsLock = new();
+
+        internal event EventHandler<bool> ScanningChanged;
+
+        private IMonitor GetMonitor(IMonitor monitorItem) => monitorItem;
+        private void DisposeMonitor(IMonitor monitor) => monitor?.Dispose();
+
+
+        private int _scanCount = 0;
+        private int _updateCount = 0;
+
+        internal Task ScanAsync() => ScanAsync(TimeSpan.Zero);
+
+        private async Task ScanAsync(TimeSpan interval)
+        {
+            var isEntered = false;
+            try
             {
-                _logger.LogInformation($"Monitor: {mb.DisplayIndex} {mb.DeviceInstanceId} {mb.Description} {mb.IsBrightnessSupported} {mb.UpdateBrightness().Status} {mb.Brightness}");
+                isEntered = (Interlocked.Increment(ref _scanCount) == 1);
+                if (isEntered)
+                {
+                    ScanningChanged?.Invoke(this, true);
+
+                    var intervalTask = (interval > TimeSpan.Zero) ? Task.Delay(interval) : Task.CompletedTask;
+
+                    await Task.Run(async () =>
+                    {
+                        var oldMonitorIndices = Enumerable.Range(0, Monitors.Count).ToList();
+                        var newMonitorItems = new List<IMonitor>();
+
+                        foreach (var item in await MonitorManager.EnumerateMonitorsAsync(TimeSpan.FromSeconds(12)))
+                        {
+                            var oldMonitorExists = false;
+
+                            foreach (int index in oldMonitorIndices)
+                            {
+                                var oldMonitor = Monitors[index];
+                                var oldMonitorUpdate = oldMonitor.UpdateBrightness();
+                                if (string.Equals(oldMonitor.DeviceInstanceId, item.DeviceInstanceId, StringComparison.OrdinalIgnoreCase)
+                                    && oldMonitorUpdate.Status == AccessStatus.Succeeded)
+                                {
+                                    oldMonitorExists = true;
+                                    oldMonitorIndices.Remove(index);
+                                    oldMonitor = item;
+                                    break;
+                                }
+                            }
+
+                            if (!oldMonitorExists)
+                                newMonitorItems.Add(item);
+                        }
+
+                        if (oldMonitorIndices.Count > 0)
+                        {
+                            oldMonitorIndices.Reverse(); // Reverse indices to start removing from the tail.
+                            foreach (int index in oldMonitorIndices)
+                            {
+                                DisposeMonitor(Monitors[index]);
+                                lock (_monitorsLock)
+                                {
+                                    Monitors.RemoveAt(index);
+                                }
+                            }
+                        }
+
+                        if (newMonitorItems.Count > 0)
+                        {
+                            foreach (var item in newMonitorItems)
+                            {
+                                var newMonitor = GetMonitor(item);
+                                lock (_monitorsLock)
+                                {
+                                    Monitors.Add(newMonitor);
+                                }
+                            }
+                        }
+                    });
+
+                    await intervalTask;
+                }
+            }
+            finally
+            {
+                if (isEntered)
+                {
+                    ScanningChanged?.Invoke(this, false);
+
+                    Interlocked.Exchange(ref _scanCount, 0);
+                }
             }
         }
+        #endregion Monitors
 
         private DateTime _latestReInitializeTime = DateTime.Now;
 
@@ -75,49 +187,46 @@ namespace MonitorBrightnessAutoAdjust
             return lux;
         }
 
-        private DateTime _latestReInitilizeMonitorTime = DateTime.Now;
+        private int _autoAdjustCount = 0;
 
-        public int AutoAdjust()
+        public int AutoAdjust(bool force = false)
         {
-            var lux = GetLux();
-            _logger.LogInformation($"{DateTime.Now:yyyy-MM-dd HH:mm:ss},{lux}");
-
-            if (Math.Abs(lux - _latestLux) > 2)
+            var isEntered = false;
+            try
             {
-                var brightnessLevel = ComputeMonitorBrightnessLevel(lux);
-                if (brightnessLevel != _latestBrightnessLevel)
+                isEntered = (Interlocked.Increment(ref _autoAdjustCount) == 1);
+                if (isEntered)
                 {
-                    _logger.LogInformation($"Lux change: {_latestLux}->{lux}, monitor brightness change: {_latestBrightnessLevel}->{brightnessLevel}...");
+                    var lux = GetLux();
+                    _logger.LogInformation($"{DateTime.Now:yyyy-MM-dd HH:mm:ss},{lux}");
 
-                    var setResultMap = SetMonitorBrightness(_monitors,brightnessLevel);
-                    if (setResultMap.Any(t => t.Value != AccessResult.Succeeded))
+                    if (force || Math.Abs(lux - _latestLux) > 2)
                     {
-                        _logger.LogInformation($"Monitor {setResultMap.FirstOrDefault(t=>t.Value != AccessResult.Succeeded).Key.Description} set failure...");
-
-                        // some monitor set failure, retry get monitors then set brightness level
-                        // retry initialize interval larger than 2 min
-                        if ((DateTime.Now - _latestReInitilizeMonitorTime).TotalMinutes > 2)
+                        var brightnessLevel = ComputeMonitorBrightnessLevel(lux);
+                        if (force || brightnessLevel != _latestBrightnessLevel)
                         {
-                            _logger.LogInformation($"Some monitor set failure, retry re-initialize...");
+                            var setResultMap = SetMonitorBrightness(Monitors, brightnessLevel);
+                            _logger.LogInformation(
+                                $"Lux change: {_latestLux}->{lux}, monitor brightness change: {_latestBrightnessLevel}->{brightnessLevel}...");
 
-                            InitializeMonitors();
-                            setResultMap = SetMonitorBrightness(_monitors, brightnessLevel);
-                            _logger.LogInformation($"Lux change: {_latestLux}->{lux}, monitor brightness change: {_latestBrightnessLevel}->{brightnessLevel}...");
-                        } 
+                            _latestBrightnessLevel = brightnessLevel;
+                        }
+
+                        _latestLux = lux;
+
+                        OnEnvironmentLightChanged?.Invoke(this,
+                            new Tuple<double, int>(_latestLux, _latestBrightnessLevel));
                     }
-
-                    _latestBrightnessLevel = brightnessLevel;
                 }
-
-                _latestLux = lux;
-
-                if (OnEnvironmentLightChanged != null)
+                return _latestBrightnessLevel;
+            }
+            finally
+            {
+                if (isEntered)
                 {
-                    OnEnvironmentLightChanged(this, new Tuple<double, int>(_latestLux, _latestBrightnessLevel));
+                    Interlocked.Exchange(ref _autoAdjustCount, 0);
                 }
             }
-
-            return _latestBrightnessLevel;
         }
 
         private static List<Tuple<double, double, int>> EnviromentLuxBrightnessLevelPredefineTable =

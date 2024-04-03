@@ -1,11 +1,12 @@
 ﻿using Microsoft.Extensions.Logging;
+using Monitorian.Core.Models.Watcher;
 
 namespace MonitorBrightnessAutoAdjust
 {
     /// <summary>
     /// notify icon app context
     /// </summary>
-    internal class AmbientLightApplicationContext : ApplicationContext
+    internal sealed class AmbientLightApplicationContext : ApplicationContext
     {
         private ILogger<AmbientLightApplicationContext> _logger;
 
@@ -30,6 +31,7 @@ namespace MonitorBrightnessAutoAdjust
                         {
                             Checked = AutoStartUtil.IsAutoRun(AutoRunRegPath, AutoRunName),
                         },
+                        new ToolStripMenuItem("Refresh", null, Refresh),
                         new ToolStripMenuItem("Exit", null, Exit),
                     }
                 },
@@ -37,18 +39,18 @@ namespace MonitorBrightnessAutoAdjust
                 Visible = true
             };
 
-            try
-            {
-                var lux = _monitorBrightnessAutoAdjustService.GetLux();
-                var brightnessLevel = _monitorBrightnessAutoAdjustService.AutoAdjust();
-                _notifyIcon.Icon = LightIconGenerator.GenerateIcon((int)lux);
-                _notifyIcon.Text = $@"Light({lux:####}), Brightness({brightnessLevel}%)";
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "{Message}", ex.Message);
-            }
+            Refresh(this, EventArgs.Empty);
         }
+
+        private void Refresh(object? sender, EventArgs e)
+        {
+            var scanTask = Task.Run(async () =>
+            {
+                await _monitorBrightnessAutoAdjustService.ProceedScanAsync(new CountEventArgs(0), true);
+            });
+            scanTask.ConfigureAwait(false);
+        }
+
 
         public const string AutoRunRegPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
         public const string AutoRunName = "MonitorBrightnessAutoAdjust";

@@ -5,6 +5,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using Windows.Devices.Sensors;
 using Microsoft.Win32;
+using Monitorian.Core.Models.Watcher;
 
 namespace Monitorian.Core.Models.Monitor;
 
@@ -113,7 +114,7 @@ internal class PowerManagement
         return activePolicyGuid;
     }
 
-    /*
+
 	public static (IReadOnlyCollection<Guid>, Func<PowerSettingChangedEventArgs, DisplayStates>) GetOnPowerSettingChanged()
 	{
 		var powerSettingGuids = new List<Guid>
@@ -127,7 +128,6 @@ internal class PowerManagement
 
 		return (powerSettingGuids, OnPowerSettingChanged);
 	}
-
 	private static DisplayStates OnPowerSettingChanged(PowerSettingChangedEventArgs e)
 	{
 		// Power Setting GUIDs
@@ -158,7 +158,6 @@ internal class PowerManagement
 		}
 		return default;
 	}
-	*/
 
     #region Display
 
