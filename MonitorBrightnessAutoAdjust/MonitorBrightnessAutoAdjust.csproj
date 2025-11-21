@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net9.0-windows10.0.26100.0</TargetFramework>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
     <ForceDesignerDPIUnaware>true</ForceDesignerDPIUnaware>
     <ApplicationHighDpiMode>DpiUnawareGdiScaled</ApplicationHighDpiMode>
@@ -12,14 +12,19 @@
     <PublishSingleFile Condition="'$(Configuration)' == 'Release'">true</PublishSingleFile>
     <RuntimeIdentifier>win-x86</RuntimeIdentifier>
     <PlatformTarget>x86</PlatformTarget>
+    <PublishReadyToRun>false</PublishReadyToRun>
     <PublishSingleFile>true</PublishSingleFile>
+    <TieredCompilation>true</TieredCompilation>
+    <TieredPGO>true</TieredPGO>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
     <SelfContained>true</SelfContained>
     <ApplicationIcon>Resources\AmbientLight.ico</ApplicationIcon>
     <Copyright>Shi Jiyong</Copyright>
     <PackageIcon>AmbientLight.png</PackageIcon>
     <Title>MonitorBrightnessAutoAdjust</Title>
     <Description>MonitorBrightnessAutoAdjust</Description>
-    <VersionPrefix>1.0.2</VersionPrefix>
+    <VersionPrefix>1.1.0</VersionPrefix>
   </PropertyGroup>
 
   <ItemGroup>
@@ -27,8 +32,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
-    <PackageReference Include="System.Management" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
+    <PackageReference Include="System.Management" Version="10.0.0" />
   </ItemGroup>
 
   <ItemGroup>
