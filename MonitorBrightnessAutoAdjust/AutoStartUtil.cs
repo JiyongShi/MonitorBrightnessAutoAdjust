@@ -1,4 +1,5 @@
-﻿using Microsoft.Win32;
+﻿using Microsoft.Extensions.Logging;
+using Microsoft.Win32;
 //using Microsoft.Win32.TaskScheduler;
 using System.IO.Compression;
 using System.Security.Cryptography;
@@ -13,6 +14,13 @@ namespace MonitorBrightnessAutoAdjust
     /// </summary>
     public class AutoStartUtil
     {
+        private readonly ILogger _logger;
+
+        public AutoStartUtil(ILogger<AutoStartUtil> logger)
+        {
+            _logger = logger;   
+        }
+
         #region TempPath
 
         /// <summary>
@@ -196,7 +204,7 @@ namespace MonitorBrightnessAutoAdjust
             }
             catch (Exception ex)
             {
-                //Logging.SaveLog(ex.Message, ex);
+                _logger.LogError(ex, ex.Message);
                 return false;
             }
         }
@@ -220,7 +228,7 @@ namespace MonitorBrightnessAutoAdjust
             }
             catch (Exception ex)
             {
-                //Logging.SaveLog(ex.Message, ex);
+                _logger.LogError(ex, ex.Message);
                 return false;
             }
         }
@@ -258,7 +266,7 @@ namespace MonitorBrightnessAutoAdjust
             }
             catch (Exception ex)
             {
-                //Logging.SaveLog(ex.Message, ex);
+                _logger.LogError(ex, ex.Message);
             }
         }
 
@@ -280,7 +288,7 @@ namespace MonitorBrightnessAutoAdjust
             }
             catch (Exception ex)
             {
-                //Logging.SaveLog(ex.Message, ex);
+                _logger.LogError(ex, ex.Message);
             }
             finally
             {
@@ -306,7 +314,7 @@ namespace MonitorBrightnessAutoAdjust
             }
             catch (Exception ex)
             {
-                //Logging.SaveLog(ex.Message, ex);
+                _logger.LogError(ex, ex.Message);
             }
             finally
             {
