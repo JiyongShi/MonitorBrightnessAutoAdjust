@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using Microsoft.Win32;
 //using Microsoft.Win32.TaskScheduler;
 using System.IO.Compression;
@@ -14,13 +14,6 @@ namespace MonitorBrightnessAutoAdjust
     /// </summary>
     public class AutoStartUtil
     {
-        private readonly ILogger _logger;
-
-        public AutoStartUtil(ILogger<AutoStartUtil> logger)
-        {
-            _logger = logger;   
-        }
-
         #region TempPath
 
         /// <summary>
@@ -202,9 +195,8 @@ namespace MonitorBrightnessAutoAdjust
                 //WindowsBuiltInRole可以枚举出很多权限，例如系统用户、User、Guest等等
                 return windowsPrincipal.IsInRole(WindowsBuiltInRole.Administrator);
             }
-            catch (Exception ex)
+            catch
             {
-                _logger.LogError(ex, ex.Message);
                 return false;
             }
         }
@@ -226,9 +218,8 @@ namespace MonitorBrightnessAutoAdjust
 
                 return !string.IsNullOrEmpty(readValue);
             }
-            catch (Exception ex)
+            catch
             {
-                _logger.LogError(ex, ex.Message);
                 return false;
             }
         }
@@ -264,9 +255,9 @@ namespace MonitorBrightnessAutoAdjust
                     //}
                 }
             }
-            catch (Exception ex)
+            catch
             {
-                _logger.LogError(ex, ex.Message);
+                // Silently fail for SetAutoRun
             }
         }
 
@@ -286,15 +277,14 @@ namespace MonitorBrightnessAutoAdjust
                     return value;
                 }
             }
-            catch (Exception ex)
+            catch
             {
-                _logger.LogError(ex, ex.Message);
+                return def;
             }
             finally
             {
                 regKey?.Close();
             }
-            return def;
         }
 
         public static void RegWriteValue(string path, string name, object value)
@@ -312,9 +302,9 @@ namespace MonitorBrightnessAutoAdjust
                     regKey?.SetValue(name, value);
                 }
             }
-            catch (Exception ex)
+            catch
             {
-                _logger.LogError(ex, ex.Message);
+                // Silently fail for RegWriteValue
             }
             finally
             {
