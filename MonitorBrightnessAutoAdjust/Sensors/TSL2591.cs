@@ -79,6 +79,9 @@ namespace MonitorBrightnessAutoAdjust.Sensors
         private const int gainDefault = GAIN_MED;
         private const int integrationTimeDefault = INT_TIME_200MS;
 
+        private const long CH341_DEVICE_NOT_CONNECTED = 0xFFFFFFFFL; // 4294967295
+
+
         private uint intTimeSet { get; set; } = integrationTimeDefault;
         private uint gainSet { get; set; } = gainDefault;
 
@@ -114,7 +117,7 @@ namespace MonitorBrightnessAutoAdjust.Sensors
             {
                 long open = CH341OpenDevice(0);
 
-                if (open != 4294967295) // if chip not connected open is Hex 00000000FFFFFFFF
+                if (open != CH341_DEVICE_NOT_CONNECTED) // if chip not connected open is Hex 00000000FFFFFFFF
                 {
                     Console.WriteLine("Chip is open with adress " + open.ToString("X16"));
                 }
