@@ -7,9 +7,9 @@ using System.Windows.Forms;
 
 namespace MonitorBrightnessAutoAdjust
 {
-    public sealed class MonitorBrightnessAutoAdjustService
+    public sealed class MonitorBrightnessAutoAdjustService : IDisposable
     {
-        public static EventHandler<Tuple<double, int>> OnEnvironmentLightChanged;
+        public static EventHandler<Tuple<double, int>>? OnEnvironmentLightChanged;
 
         private readonly ILogger _logger;
 
@@ -20,6 +20,8 @@ namespace MonitorBrightnessAutoAdjust
         private readonly SessionWatcher _sessionWatcher;
         private readonly PowerWatcher _powerWatcher;
         private readonly DisplaySettingsWatcher _displaySettingsWatcher;
+
+        private bool _disposed = false;
 
         public MonitorBrightnessAutoAdjustService(ILogger<MonitorBrightnessAutoAdjustBackgroundService> logger)
         {
@@ -42,9 +44,25 @@ namespace MonitorBrightnessAutoAdjust
 
         #region Monitors
 
+        private DateTime _lastScanTime = DateTime.MinValue;
+        private CancellationTokenSource? _scanCancellationTokenSource;
+
+
         private async void OnMonitorsChangeInferred(object sender, ICountEventArgs e = null, bool force = false)
         {
-            await ProceedScanAsync(e);
+            // 避免过于频繁的扫描
+            if (!force && (DateTime.Now - _lastScanTime).TotalSeconds < 10)
+                return;
+            
+            _scanCancellationTokenSource?.Cancel();
+            _scanCancellationTokenSource = new CancellationTokenSource();
+            
+            await Task.Delay(TimeSpan.FromSeconds(1), _scanCancellationTokenSource.Token)
+                .ContinueWith(async _ =>
+                {
+                    await ProceedScanAsync(e, force);
+                    _lastScanTime = DateTime.Now;
+                });
         }
 
         public async Task ProceedScanAsync(ICountEventArgs e, bool force = false)
@@ -272,6 +290,27 @@ namespace MonitorBrightnessAutoAdjust
                 _logger.LogInformation($"{monitor.Description} brightness changed to: {brightnessLevel}, {result.Status}");
             }
             return setResultList;
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+        
+        protected void Dispose(bool disposing)
+        {
+            if (!_disposed)
+            {
+                if (disposing)
+                {
+                    // 清理托管资源
+                    _sessionWatcher?.Dispose();
+                    _powerWatcher?.Dispose();
+                    _displaySettingsWatcher?.Dispose();
+                }
+                _disposed = true;
+            }
         }
     }
 }
