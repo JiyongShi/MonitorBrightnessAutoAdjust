@@ -18,7 +18,7 @@ namespace MonitorBrightnessAutoAdjust
             _logger = logger;
             _monitorBrightnessAutoAdjustService = brightnessAutoAdjustService;
 
-            MonitorBrightnessAutoAdjustService.OnEnvironmentLightChanged += OnEnvironmentLightChanged;
+            _monitorBrightnessAutoAdjustService.LightChanged += OnEnvironmentLightChanged;
             _notifyIcon = new NotifyIcon()
             {
                 // default icon, if light sensor connected and can access light lux, will show lux value.
@@ -44,11 +44,10 @@ namespace MonitorBrightnessAutoAdjust
 
         private void Refresh(object? sender, EventArgs e)
         {
-            var scanTask = Task.Run(async () =>
+            _ = Task.Run(async () =>
             {
                 await _monitorBrightnessAutoAdjustService.ProceedScanAsync(new CountEventArgs(0), true);
             });
-            scanTask.ConfigureAwait(false);
         }
 
 
@@ -67,10 +66,10 @@ namespace MonitorBrightnessAutoAdjust
             toolStripMenuItem.Checked = !toolStripMenuItem.Checked;
         }
 
-        private void OnEnvironmentLightChanged(object? sender, Tuple<double, int> e)
+        private void OnEnvironmentLightChanged(object? sender, LightChangedEventArgs e)
         {
-            _notifyIcon.Icon = LightIconGenerator.GenerateIcon((int)e.Item1);
-            _notifyIcon.Text = $@"Light({e.Item1:####}), Brightness({e.Item2}%)";
+            _notifyIcon.Icon = LightIconGenerator.GenerateIcon((int)e.Lux);
+            _notifyIcon.Text = $@"Light({e.Lux:####}), Brightness({e.Brightness}%)";
         }
 
         void Exit(object? sender, EventArgs e)
