@@ -18,7 +18,6 @@ internal static class Program
         string[] args = Environment.GetCommandLineArgs().Skip(1).ToArray();
 
         HostApplicationBuilder builder = Host.CreateApplicationBuilder(args);
-        // TODO: add file logger
         builder.Services.AddSingleton<MonitorBrightnessAutoAdjustService>();
         builder.Services.AddHostedService<MonitorBrightnessAutoAdjustBackgroundService>();
         builder.Services.AddSingleton<AmbientLightApplicationContext>();
