@@ -16,7 +16,7 @@ namespace MonitorBrightnessAutoAdjust
                     var brightnessLevel = monitorBrightnessAutoAdjustService.AutoAdjust();
                     logger.LogInformation("All monitors brightness: {brightnessLevel}", brightnessLevel);
 
-                    await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
+                    await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
                 }
             }
             catch (OperationCanceledException)
