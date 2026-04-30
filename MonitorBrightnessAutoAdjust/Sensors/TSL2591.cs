@@ -34,8 +34,6 @@ namespace MonitorBrightnessAutoAdjust.Sensors
         [DllImport("ch341dll.DLL", CallingConvention = CallingConvention.Winapi)]
         public extern static long CH341SetStream(int iIndex, int iMode);
 
-        byte[] WriteBuf = new byte[10];
-
         // Address Constant
         private const int TSL2591_ADDR = 0x29;
         // Commands
@@ -197,7 +195,7 @@ namespace MonitorBrightnessAutoAdjust.Sensors
             double lux2 = (LUX_COEFC * d0 - LUX_COEFD * d1) / cpl;
             return Math.Round(Math.Max(lux1, lux2), 4);
         }
-
+        
         // WriteBuf strucure:
         // [0]: device Address
         // [1]: register Address
@@ -208,31 +206,29 @@ namespace MonitorBrightnessAutoAdjust.Sensors
         private void write8(byte registerAddress, byte cmd)
         {
             // 7-bit
-            WriteBuf[0] = Convert.ToByte(I2C_ADDRESS << 1);
+            var writeBuf = new byte[10];
+            writeBuf[0] = Convert.ToByte(I2C_ADDRESS << 1);
 
-            byte[] Command = new byte[] { (byte)(registerAddress | TSL2591_CMD), cmd };
+            byte[] command = new byte[] { (byte)(registerAddress | TSL2591_CMD), cmd };
 
-            // I2C.Write(Command);
+            command.CopyTo(writeBuf, 1);
+            var bufLength = command.Length + 1;
             byte[] buf = new byte[1];
 
-            Command.CopyTo(WriteBuf, 1);
-            var bufLength = registerAddress + Command.Length;
-
-            CH341StreamI2C(0, bufLength + 1, ref WriteBuf[0], bufLength, ref buf[0]);
+            CH341StreamI2C(0, bufLength, ref writeBuf[0], bufLength, ref buf[0]);
         }
 
         // Read byte
         private byte I2CRead8(byte registerAddress)
         {
-            WriteBuf[0] = Convert.ToByte(I2C_ADDRESS << 1);
+            var writeBuf = new byte[10];
+            writeBuf[0] = Convert.ToByte(I2C_ADDRESS << 1);
 
             byte[] aaddr = new byte[] { (byte)(registerAddress | TSL2591_CMD) };
-            aaddr.CopyTo(WriteBuf, 1);
+            aaddr.CopyTo(writeBuf, 1);
 
-            // I2C.WriteRead(aaddr, data);
             byte[] data = new byte[1];
-
-            CH341StreamI2C(0, 2, ref WriteBuf[0], data.Length, ref data[0]);
+            CH341StreamI2C(0, 2, ref writeBuf[0], data.Length, ref data[0]);
 
             return data[0];
         }
@@ -240,15 +236,14 @@ namespace MonitorBrightnessAutoAdjust.Sensors
         // Read integer
         private ushort I2CRead16(byte registerAddress)
         {
-            WriteBuf[0] = Convert.ToByte(I2C_ADDRESS << 1);
+            var writeBuf = new byte[10];
+            writeBuf[0] = Convert.ToByte(I2C_ADDRESS << 1);
 
             byte[] aaddr = new byte[] { (byte)(registerAddress | TSL2591_CMD) };
-            aaddr.CopyTo(WriteBuf, 1);
+            aaddr.CopyTo(writeBuf, 1);
 
-            // I2C.WriteRead(aaddr, data);
             byte[] data = new byte[2];
-
-            CH341StreamI2C(0, 2, ref WriteBuf[0], data.Length, ref data[0]);
+            CH341StreamI2C(0, 2, ref writeBuf[0], data.Length, ref data[0]);
 
             return (ushort)(data[1] << 8 | data[0]);
         }
