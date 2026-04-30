@@ -11,7 +11,7 @@ namespace MonitorBrightnessAutoAdjust
         [return: MarshalAs(UnmanagedType.Bool)]
         internal static extern bool DestroyIcon(IntPtr handle);
 
-        private static readonly int IconSize = 512;
+        private static readonly int IconSize = 64;
 
         /// <summary>
         /// static ctor.
@@ -73,10 +73,12 @@ namespace MonitorBrightnessAutoAdjust
             };
             var fontSize = (float)Math.Abs(size * reSize);
 
-            Font font = new Font("Segoe UI", fontSize, FontStyle.Regular);
-            StringFormat format = new StringFormat();
-            format.LineAlignment = StringAlignment.Center;
-            format.Alignment = StringAlignment.Center;
+            using var font = new Font("Segoe UI", fontSize, FontStyle.Regular);
+            using var format = new StringFormat
+            {
+                LineAlignment = StringAlignment.Center,
+                Alignment = StringAlignment.Center
+            };
             graphics.DrawString(light.ToString(), font, Brushes.LawnGreen, size * 0.5f, size * 0.5f, format);
         }
     }
