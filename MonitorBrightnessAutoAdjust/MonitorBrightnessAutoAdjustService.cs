@@ -9,9 +9,9 @@ namespace MonitorBrightnessAutoAdjust
 {
     public sealed class MonitorBrightnessAutoAdjustService : IDisposable
     {
-        public static EventHandler<Tuple<double, int>>? OnEnvironmentLightChanged;
+        public event EventHandler<LightChangedEventArgs>? LightChanged;
 
-        private readonly ILogger _logger;
+        private readonly ILogger<MonitorBrightnessAutoAdjustService> _logger;
 
         private readonly TSL2591 _lightSensor;
         private double _latestLux = 0d;
@@ -23,7 +23,7 @@ namespace MonitorBrightnessAutoAdjust
 
         private bool _disposed = false;
 
-        public MonitorBrightnessAutoAdjustService(ILogger<MonitorBrightnessAutoAdjustBackgroundService> logger)
+        public MonitorBrightnessAutoAdjustService(ILogger<MonitorBrightnessAutoAdjustService> logger)
         {
             _logger = logger;
 
@@ -84,7 +84,6 @@ namespace MonitorBrightnessAutoAdjust
 
 
         private int _scanCount = 0;
-        private int _updateCount = 0;
 
         internal Task ScanAsync() => ScanAsync(TimeSpan.Zero);
 
@@ -118,7 +117,6 @@ namespace MonitorBrightnessAutoAdjust
                                 {
                                     oldMonitorExists = true;
                                     oldMonitorIndices.Remove(index);
-                                    oldMonitor = item;
                                     break;
                                 }
                             }
@@ -182,13 +180,13 @@ namespace MonitorBrightnessAutoAdjust
                         var deviceId = _lightSensor.GetId();
                         if (deviceId == 0)
                         {
-                            _logger.LogInformation($"Light sensor can't access...");
+                            _logger.LogInformation("Light sensor can't access, deviceId={DeviceId}", deviceId);
 
                             // may compute sleep or usb reconnected, try re-initialize
                             // retry initialize interval larger than 2 min
                             if ((DateTime.Now - _latestReInitializeTime).TotalMinutes > 2)
                             {
-                                _logger.LogInformation($"Light sensor can't access, retry re-initialize...");
+                                _logger.LogInformation("Light sensor can't access, retry re-initialize");
                                 _lightSensor.Initialize();
                                 lux = _lightSensor.GetLux();
                                 _latestReInitializeTime = DateTime.Now;
@@ -216,7 +214,7 @@ namespace MonitorBrightnessAutoAdjust
                 if (isEntered)
                 {
                     var lux = GetLux();
-                    _logger.LogInformation($"{DateTime.Now:yyyy-MM-dd HH:mm:ss},{lux}");
+                    _logger.LogInformation("Lux={Lux}", lux);
 
                     if (force || Math.Abs(lux - _latestLux) > 2)
                     {
@@ -225,15 +223,15 @@ namespace MonitorBrightnessAutoAdjust
                         {
                             var setResultMap = SetMonitorBrightness(Monitors, brightnessLevel);
                             _logger.LogInformation(
-                                $"Lux change: {_latestLux}->{lux}, monitor brightness change: {_latestBrightnessLevel}->{brightnessLevel}...");
+                                "Lux changed: {PreviousLux}->{CurrentLux}, brightness changed: {PreviousLevel}->{CurrentLevel}",
+                                _latestLux, lux, _latestBrightnessLevel, brightnessLevel);
 
                             _latestBrightnessLevel = brightnessLevel;
                         }
 
                         _latestLux = lux;
 
-                        OnEnvironmentLightChanged?.Invoke(this,
-                            new Tuple<double, int>(_latestLux, _latestBrightnessLevel));
+                        LightChanged?.Invoke(this, new LightChangedEventArgs(_latestLux, _latestBrightnessLevel));
                     }
                 }
                 return _latestBrightnessLevel;
@@ -247,7 +245,7 @@ namespace MonitorBrightnessAutoAdjust
             }
         }
 
-        private static List<Tuple<double, double, int>> EnviromentLuxBrightnessLevelPredefineTable =
+        private static readonly List<LuxBrightnessRange> EnvironmentLuxBrightnessLevelTable =
         [
             new(-1, 10, 0),
             new(10, 20, 24),
@@ -262,21 +260,19 @@ namespace MonitorBrightnessAutoAdjust
 
         private int ComputeMonitorBrightnessLevel(double lux)
         {
-            var rangeIndex = EnviromentLuxBrightnessLevelPredefineTable.FindIndex(t => lux > t.Item1 && lux <= t.Item2);
-            var currentRange = EnviromentLuxBrightnessLevelPredefineTable[rangeIndex];
-            if (rangeIndex == EnviromentLuxBrightnessLevelPredefineTable.Count - 1)
+            var rangeIndex = EnvironmentLuxBrightnessLevelTable.FindIndex(t => lux > t.MinLux && lux <= t.MaxLux);
+            var currentRange = EnvironmentLuxBrightnessLevelTable[rangeIndex];
+            if (rangeIndex == EnvironmentLuxBrightnessLevelTable.Count - 1)
             {
-                // max brightness, NOT need linear compute
-                return currentRange.Item3;
+                // max brightness, no linear interpolation needed
+                return currentRange.Brightness;
             }
 
-            var rangeMinLevel = currentRange.Item3;
-            var rangeMaxLevel = EnviromentLuxBrightnessLevelPredefineTable[
-                rangeIndex == EnviromentLuxBrightnessLevelPredefineTable.Count - 1
-                    ? rangeIndex
-                    : rangeIndex + 1].Item3;
-            var level = currentRange.Item3 + (int)((rangeMaxLevel - rangeMinLevel) / (currentRange.Item2 - currentRange.Item1) *
-                                                   (lux - currentRange.Item1));
+            var nextRange = EnvironmentLuxBrightnessLevelTable[rangeIndex + 1];
+            var rangeMinLevel = currentRange.Brightness;
+            var rangeMaxLevel = nextRange.Brightness;
+            var level = currentRange.Brightness + (int)((rangeMaxLevel - rangeMinLevel) / (currentRange.MaxLux - currentRange.MinLux) *
+                                                    (lux - currentRange.MinLux));
             return level;
         }
 
@@ -287,7 +283,8 @@ namespace MonitorBrightnessAutoAdjust
             {
                 var result = monitor.SetBrightness(brightnessLevel);
                 setResultList.Add(monitor, result);
-                _logger.LogInformation($"{monitor.Description} brightness changed to: {brightnessLevel}, {result.Status}");
+                _logger.LogInformation("{MonitorDescription} brightness changed to {BrightnessLevel}, {Status}",
+                    monitor.Description, brightnessLevel, result.Status);
             }
             return setResultList;
         }
@@ -304,7 +301,6 @@ namespace MonitorBrightnessAutoAdjust
             {
                 if (disposing)
                 {
-                    // 清理托管资源
                     _sessionWatcher?.Dispose();
                     _powerWatcher?.Dispose();
                     _displaySettingsWatcher?.Dispose();
@@ -312,5 +308,19 @@ namespace MonitorBrightnessAutoAdjust
                 _disposed = true;
             }
         }
+    }
+
+    /// <summary>
+    /// Represents a lux range and its corresponding brightness level.
+    /// </summary>
+    internal readonly record struct LuxBrightnessRange(double MinLux, double MaxLux, int Brightness);
+
+    /// <summary>
+    /// Event args for light sensor changes.
+    /// </summary>
+    public sealed class LightChangedEventArgs(double lux, int brightness) : EventArgs
+    {
+        public double Lux { get; } = lux;
+        public int Brightness { get; } = brightness;
     }
 }
